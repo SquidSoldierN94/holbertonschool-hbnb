@@ -98,3 +98,7 @@ class HBnBFacade:
     def get_reviews_by_place(self, place_id):
         """Gets all reviews for a specific place."""
         return Review.query.filter_by(place_id=place_id).all()
+
+    def get_user_by_email(self, email):
+        """Gets a user by their email address."""
+        return User.query.filter_by(email=email).first()

@@ -1,14 +1,21 @@
-#!/usr/bin/python3
+# app/__init__.py
 
 from flask import Flask
 from flask_restx import Api
 from flask_sqlalchemy import SQLAlchemy
+import os
 
 db = SQLAlchemy()
 
-def create_app():
+def create_app(config_name=None):
     app = Flask(__name__)
-    app.config.from_object('config.Config')
+    
+    from config import config
+    
+    if config_name is None:
+        config_name = os.getenv('FLASK_CONFIG', 'default')
+    
+    app.config.from_object(config[config_name])
 
     db.init_app(app)
     api = Api(app, version='1.0', title='HBnB API', description='HBnB Application API')

@@ -1,18 +1,20 @@
 #!/usr/bin/python3
 
+from sqlalchemy import Column, String, Float
+from sqlalchemy.orm import relationship
 from flask_restx import Namespace, Resource, fields
-from app import db  # Import your database instance
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from app import db
 
-# Define the API namespace for places
 api = Namespace('places', description='Place operations')
 
-# Define the amenity model
+# Amenity Model
 amenity_model = api.model('PlaceAmenity', {
     'id': fields.String(description='Amenity ID'),
     'name': fields.String(description='Name of the amenity')
 })
 
-# Define the user model
+# User Model
 user_model = api.model('PlaceUser', {
     'id': fields.String(description='User ID'),
     'first_name': fields.String(description='First name of the owner'),
@@ -20,7 +22,7 @@ user_model = api.model('PlaceUser', {
     'email': fields.String(description='Email of the owner')
 })
 
-# Define the review model separately to avoid circular imports
+# Review Model
 review_model = api.model('PlaceReview', {
     'id': fields.String(description='Review ID'),
     'text': fields.String(description='Text of the review'),
@@ -28,7 +30,7 @@ review_model = api.model('PlaceReview', {
     'user_id': fields.String(description='ID of the user')
 })
 
-# Define the Place model
+# Place Model
 class Place(db.Model):
     __tablename__ = 'places'
 
@@ -40,10 +42,11 @@ class Place(db.Model):
     longitude = db.Column(db.Float, nullable=False)
     owner_id = db.Column(db.String(60), db.ForeignKey('users.id'), nullable=False)
 
+    owner = db.relationship('User', backref='places', lazy=True)
     amenities = db.relationship('Amenity', backref='place', lazy=True)
     reviews = db.relationship('Review', backref='place', lazy=True)
 
-# Define the place model for input validation
+# Place Model Serializer
 place_model = api.model('Place', {
     'title': fields.String(required=True, description='Title of the place'),
     'description': fields.String(description='Description of the place'),
@@ -61,12 +64,16 @@ class PlaceList(Resource):
     @api.expect(place_model, validate=True)
     @api.response(201, 'Place successfully created')
     @api.response(400, 'Invalid input data')
+    @jwt_required()
     def post(self):
         """Register a new place"""
-        from app.services.facade import HBnBFacade  # Lazy import to avoid circular dependency
+        from app.services.facade import HBnBFacade
         facade = HBnBFacade()
 
         place_data = api.payload
+        current_user = get_jwt_identity()
+        place_data['owner_id'] = current_user
+
         try:
             new_place = facade.create_place(place_data)
             if not new_place:
@@ -80,7 +87,7 @@ class PlaceList(Resource):
     @api.response(200, 'List of places retrieved successfully')
     def get(self):
         """Retrieve a list of all places"""
-        from app.services.facade import HBnBFacade  # Lazy import to avoid circular dependency
+        from app.services.facade import HBnBFacade
         facade = HBnBFacade()
 
         places = facade.get_all_places()
@@ -93,7 +100,7 @@ class PlaceResource(Resource):
     @api.response(404, 'Place not found')
     def get(self, place_id):
         """Get place details by ID"""
-        from app.services.facade import HBnBFacade  # Lazy import to avoid circular dependency
+        from app.services.facade import HBnBFacade
         facade = HBnBFacade()
 
         place = facade.get_place(place_id)
@@ -120,14 +127,21 @@ class PlaceResource(Resource):
     @api.response(200, 'Place updated successfully')
     @api.response(404, 'Place not found')
     @api.response(400, 'Invalid input data')
+    @jwt_required()
     def put(self, place_id):
         """Update a place's information"""
-        from app.services.facade import HBnBFacade  # Lazy import to avoid circular dependency
+        from app.services.facade import HBnBFacade
         facade = HBnBFacade()
 
         place_data = api.payload
+        current_user = get_jwt_identity()
+        place = facade.get_place(place_id)
+
+        if place.owner_id != current_user:
+            return {'error': 'Unauthorized action'}, 403
+
         try:
-            updated_place = facade.update_place(place_id, place_data)
+            updated_place = facade.update_place(place_id, place_data, current_user)
             if not updated_place:
                 return {'error': 'Place not found'}, 404
             return {'message': 'Place updated successfully'}, 200

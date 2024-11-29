@@ -3,11 +3,9 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime
-from sqlalchemy.ext.declarative import declarative_base
+from app import db  # Ensure this path is correct based on your project structure
 
-Base = declarative_base()
-
-class BaseModel(Base):
+class BaseModel(db.Model):
     __abstract__ = True
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -15,11 +13,13 @@ class BaseModel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def save(self):
-        """Update the updated_at timestamp."""
+        """Update the updated_at timestamp and commit the change."""
         self.updated_at = datetime.utcnow()
+        db.session.add(self)
+        db.session.commit()
 
     def update(self, data):
-        """Update the model with the given data."""
+        """Update the model with the given data and commit the change."""
         for key, value in data.items():
             if hasattr(self, key):
                 setattr(self, key, value)

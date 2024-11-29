@@ -1,104 +1,146 @@
-#!/usr/bin/python3
-
+from app.models import Place, Review, User, Amenity
 from app import db
-from app.models import Place, User, Review, Amenity
+from sqlalchemy.exc import IntegrityError
 
 class HBnBFacade:
+    def __init__(self):
+        pass
+
+    # Create a new place
     def create_place(self, place_data):
-        owner_id = place_data.get('owner_id')
-        owner = User.query.get(owner_id)
+        """Create a new place"""
+        try:
+            new_place = Place(
+                id=place_data['id'],
+                title=place_data['title'],
+                description=place_data.get('description'),
+                price=place_data['price'],
+                latitude=place_data['latitude'],
+                longitude=place_data['longitude'],
+                owner_id=place_data['owner_id']
+            )
 
-        if not owner:
-            raise ValueError("Owner ID does not exist.")
+            # Add amenities to the place if provided
+            if 'amenities' in place_data:
+                amenities = place_data['amenities']
+                new_place.amenities = [Amenity(id=amenity['id'], name=amenity['name']) for amenity in amenities]
+            
+            db.session.add(new_place)
+            db.session.commit()
+            return new_place
+        except IntegrityError:
+            db.session.rollback()
+            raise ValueError("Place could not be created due to integrity constraints.")
+        except Exception as e:
+            db.session.rollback()
+            raise ValueError(f"An error occurred while creating the place: {str(e)}")
 
-        new_place = Place(
-            title=place_data['title'],
-            description=place_data.get('description'),
-            price=place_data['price'],
-            latitude=place_data['latitude'],
-            longitude=place_data['longitude'],
-            owner=owner
-        )
-        
-        amenities = place_data.get('amenities', [])
-        for amenity in amenities:
-            amenity_obj = Amenity.query.get(amenity['id'])
-            if amenity_obj:
-                new_place.amenities.append(amenity_obj)
-
-        db.session.add(new_place)
-        db.session.commit()
-        return new_place
-
-    def get_all_places(self):
-        return Place.query.all()
-
+    # Get a single place by ID
     def get_place(self, place_id):
-        return Place.query.get(place_id)
-
-    def update_place(self, place_id, place_data):
-        place = self.get_place(place_id)
+        """Get a place by ID"""
+        place = Place.query.filter_by(id=place_id).first()
         if not place:
-            return None
-        
-        place.title = place_data.get('title', place.title)
-        place.description = place_data.get('description', place.description)
-        place.price = place_data.get('price', place.price)
-        place.latitude = place_data.get('latitude', place.latitude)
-        place.longitude = place_data.get('longitude', place.longitude)
-
-        place.amenities.clear()
-        amenities = place_data.get('amenities', [])
-        for amenity in amenities:
-            amenity_obj = Amenity.query.get(amenity['id'])
-            if amenity_obj:
-                place.amenities.append(amenity_obj)
-
-        db.session.commit()
+            raise ValueError("Place not found")
         return place
 
+    # Get all places
+    def get_all_places(self):
+        """Get all places"""
+        return Place.query.all()
+
+    # Update a place
+    def update_place(self, place_id, place_data, current_user):
+        """Update a place's details"""
+        place = self.get_place(place_id)
+        
+        if place.owner_id != current_user:
+            raise PermissionError("You do not have permission to update this place.")
+        
+        try:
+            place.title = place_data['title']
+            place.description = place_data.get('description', place.description)
+            place.price = place_data['price']
+            place.latitude = place_data['latitude']
+            place.longitude = place_data['longitude']
+
+            # Update amenities
+            if 'amenities' in place_data:
+                place.amenities = [Amenity(id=amenity['id'], name=amenity['name']) for amenity in place_data['amenities']]
+            
+            db.session.commit()
+            return place
+        except Exception as e:
+            db.session.rollback()
+            raise ValueError(f"An error occurred while updating the place: {str(e)}")
+
+    # Create a new review for a place
     def create_review(self, review_data):
-        """Creates a new review."""
-        new_review = Review(**review_data)  # Unpack review data into Review object
-        db.session.add(new_review)
-        db.session.commit()
-        return new_review
+        """Create a review for a place"""
+        try:
+            review = Review(
+                text=review_data['text'],
+                rating=review_data['rating'],
+                user_id=review_data['user_id'],
+                place_id=review_data['place_id']
+            )
+            review.validate()  # Validation for rating between 1 and 5
+            db.session.add(review)
+            db.session.commit()
+            return review
+        except ValueError as e:
+            db.session.rollback()
+            raise ValueError(f"Invalid review data: {str(e)}")
+        except Exception as e:
+            db.session.rollback()
+            raise ValueError(f"An error occurred while creating the review: {str(e)}")
 
-    def get_all_reviews(self):
-        """Returns all reviews."""
-        return Review.query.all()
-
+    # Get a review by ID
     def get_review(self, review_id):
-        """Gets a review by its ID."""
-        return Review.query.get(review_id)
-
-    def update_review(self, review_id, review_data):
-        """Updates a review's information."""
-        review = self.get_review(review_id)
+        """Get a review by ID"""
+        review = Review.query.filter_by(id=review_id).first()
         if not review:
-            return None
-
-        review.text = review_data.get('text', review.text)
-        review.rating = review_data.get('rating', review.rating)
-        review.user_id = review_data.get('user_id', review.user_id)
-        review.place_id = review_data.get('place_id', review.place_id)
-
-        db.session.commit()
+            raise ValueError("Review not found")
         return review
 
-    def delete_review(self, review_id):
-        """Deletes a review."""
+    # Get all reviews
+    def get_all_reviews(self):
+        """Get all reviews"""
+        return Review.query.all()
+
+    # Get all reviews for a specific place
+    def get_reviews_for_place(self, place_id):
+        """Get all reviews for a specific place"""
+        place = self.get_place(place_id)
+        return place.reviews
+
+    # Delete a review by ID
+    def delete_review(self, review_id, current_user):
+        """Delete a review by ID if the user is the owner or reviewer"""
         review = self.get_review(review_id)
-        if not review:
-            raise ValueError("Review not found.")
         
-        db.session.delete(review)
-        db.session.commit()
+        if review.user_id != current_user:
+            raise PermissionError("You do not have permission to delete this review.")
+        
+        try:
+            db.session.delete(review)
+            db.session.commit()
+            return {"message": "Review successfully deleted."}
+        except Exception as e:
+            db.session.rollback()
+            raise ValueError(f"An error occurred while deleting the review: {str(e)}")
 
-    def get_reviews_by_place(self, place_id):
-        """Gets all reviews for a specific place."""
-        return Review.query.filter_by(place_id=place_id).all()
-
-    def get_user_by_email(self, email):
-        """Gets a user by their email address."""
-        return User.query.filter_by(email=email).first()
+    # Delete a place by ID
+    def delete_place(self, place_id, current_user):
+        """Delete a place by ID if the user is the owner"""
+        place = self.get_place(place_id)
+        
+        if place.owner_id != current_user:
+            raise PermissionError("You do not have permission to delete this place.")
+        
+        try:
+            db.session.delete(place)
+            db.session.commit()
+            return {"message": "Place successfully deleted."}
+        except Exception as e:
+            db.session.rollback()
+            raise ValueError(f"An error occurred while deleting the place: {str(e)}")
